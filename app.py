@@ -1,13 +1,10 @@
 import streamlit as st
 import torch
-from transformers import AutoModelForCausalLM, AutoProcessor
-from qwen_vl_utils import process_vision_info
-import tempfile
+import sys
 import os
 from PIL import Image
 import json
 import time
-import sys
 from io import BytesIO
 import base64
 
@@ -69,10 +66,22 @@ if 'model' not in st.session_state:
 if 'processor' not in st.session_state:
     st.session_state.processor = None
 
+@st.cache_resource
+def check_torch_installation():
+    """Check if PyTorch is properly installed"""
+    try:
+        import torch
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        return True, device, torch.__version__
+    except ImportError:
+        return False, None, None
+
 @st.cache_resource(show_spinner="🔄 Đang tải model dots.ocr...")
 def load_model():
     """Load model once and cache it"""
     try:
+        from transformers import AutoModelForCausalLM, AutoProcessor
+        
         # Sử dụng model ID từ Hugging Face
         model_path = "rednote-hilab/dots.ocr"
         
@@ -82,15 +91,21 @@ def load_model():
             trust_remote_code=True
         )
         
-        # Load model with CPU optimization
+        # Determine torch_dtype based on device availability
+        if torch.cuda.is_available():
+            torch_dtype = torch.bfloat16
+            device_map = "auto"
+        else:
+            torch_dtype = torch.float32
+            device_map = "cpu"
+        
+        # Load model with optimized settings
         model = AutoModelForCausalLM.from_pretrained(
             model_path,
-            torch_dtype=torch.float32,
-            device_map="cpu",
+            torch_dtype=torch_dtype,
+            device_map=device_map,
             trust_remote_code=True,
             low_cpu_mem_usage=True,
-            # Additional optimizations
-            torch_dtype=torch.float32 if not torch.cuda.is_available() else torch.bfloat16,
         )
         
         return model, processor
@@ -153,6 +168,8 @@ def process_document(image, model, processor, prompt_type="layout_all"):
     ]
     
     try:
+        from qwen_vl_utils import process_vision_info
+        
         # Prepare inputs
         text = processor.apply_chat_template(
             messages,
@@ -307,9 +324,23 @@ def display_results(result, prompt_type, image_name):
         )
 
 def main():
+    # Check PyTorch first
+    torch_ok, device, torch_version = check_torch_installation()
+    
+    if not torch_ok:
+        st.error("❌ PyTorch chưa được cài đặt đúng cách!")
+        st.code("""
+        # Để fix, thử:
+        pip install torch torchvision torchaudio
+        """)
+        return
+    
     # Header
     st.markdown('<h1 class="main-header">📄 dots.ocr</h1>', unsafe_allow_html=True)
     st.markdown('<p class="sub-header">Phân tích tài liệu đa ngôn ngữ với AI - Document Parser</p>', unsafe_allow_html=True)
+    
+    # System info
+    st.info(f"🔧 PyTorch {torch_version} | Device: {device}")
     
     # Sidebar configuration
     with st.sidebar:
@@ -319,7 +350,7 @@ def main():
         st.info("""
         🤖 **Model**: dots.ocr (1.7B parameters)
         🌍 **Languages**: 100+ ngôn ngữ
-        ⚡ **Mode**: CPU Inference
+        ⚡ **Mode**: CPU/GPU Inference
         """)
         
         # Processing mode
@@ -341,12 +372,15 @@ def main():
             temperature = st.slider("Temperature:", 0.1, 1.0, 0.7)
             
         # Performance warning
-        st.warning("""
-        ⚠️ **Lưu ý hiệu suất:**
-        - Xử lý trên CPU có thể mất 30-60 giây
-        - Ảnh lớn sẽ được resize tự động
-        - Khuyến nghị ảnh < 2048px
-        """)
+        if device == "cpu":
+            st.warning("""
+            ⚠️ **Lưu ý hiệu suất CPU:**
+            - Xử lý có thể mất 30-60 giây
+            - Ảnh lớn sẽ được resize tự động
+            - Khuyến nghị ảnh < 2048px
+            """)
+        else:
+            st.success("🚀 **GPU detected** - Faster processing!")
     
     # Main content area
     col1, col2 = st.columns([1, 1])
@@ -361,16 +395,15 @@ def main():
             help="Hỗ trợ: PNG, JPG, JPEG, WebP, BMP (< 200MB)"
         )
         
-        # Example images
-        st.markdown("**📋 Hoặc chọn ảnh mẫu:**")
+        # Example images section
+        st.markdown("**📋 Hoặc sử dụng ảnh mẫu:**")
         example_choice = st.selectbox(
             "Chọn ảnh mẫu:",
             ["Không chọn", "Document tiếng Anh", "Document tiếng Việt", "Scientific Paper", "Invoice/Form"]
         )
         
         if example_choice != "Không chọn":
-            st.info(f"🖼️ Đã chọn: {example_choice}")
-            # Có thể thêm ảnh mẫu ở đây
+            st.info(f"🖼️ Đã chọn: {example_choice} (tính năng sẽ được thêm)")
     
     with col2:
         st.subheader("🎛️ Trạng thái hệ thống")
@@ -399,7 +432,7 @@ def main():
                 model_info = st.container()
                 with model_info:
                     st.metric("🧠 Model Status", "Ready")
-                    st.metric("💾 Device", "CPU")
+                    st.metric("💾 Device", device.upper())
                     st.metric("🔢 Parameters", "1.7B")
     
     # Processing section
@@ -479,8 +512,8 @@ def main():
     with st.expander("🔧 Thông tin kỹ thuật"):
         st.code(f"""
         Python: {sys.version}
-        PyTorch: {torch.__version__}
-        Device: {"CUDA" if torch.cuda.is_available() else "CPU"}
+        PyTorch: {torch_version}
+        Device: {device.upper()}
         Model: dots.ocr (rednote-hilab/dots.ocr)
         Parameters: 1.7B
         """)
