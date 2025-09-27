@@ -1,0 +1,41 @@
+[server]
+port = 8501
+address = "0.0.0.0"
+maxUploadSize = 200
+maxMessageSize = 200
+enableCORS = false
+enableXsrfProtection = true
+
+[client]
+showErrorDetails = false
+toolbarMode = "auto"
+showSidebarNavigation = true
+
+[theme]
+base = "light"
+primaryColor = "#ff4b4b"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f0f2f6"
+textColor = "#262730"
+
+[browser]
+gatherUsageStats = false
+
+[logger]
+level = "info"
+messageFormat = "%(asctime)s %(message)s"
+
+[runner]
+magicEnabled = true
+installTracer = false
+fixMatplotlib = true
+postScriptGC = true
+fastReruns = true
+enforceSerializableSessionState = true
+
+[global]
+developmentMode = false
+logLevel = "info"
+minCachedMessageSize = 0
+maxCachedMessageAge = 3600
+showWarningOnDirectExecution = true
